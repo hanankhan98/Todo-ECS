@@ -1,0 +1,51 @@
+body {
+  background-color: rgb(236, 254, 254);
+}
+
+.HeaderColor {
+  color: rgb(30, 190, 30);
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: bolder;
+}
+
+input {
+  border: 2px solid rgb(61, 225, 61);
+  border-radius: 10px;
+  height: 50px;
+  width: 350px;
+  margin-bottom: 10px;
+}
+
+.card {
+  background-color: rgb(136, 241, 136);
+}
+button.btn-primary {
+  float: right;
+  margin-right: -600px;
+}
+
+input[type="text"] {
+  margin-left: 450px;
+}
+
+input[type="text1"] {
+  margin-left: 150px;
+}
+
+.card-text.d-flex.gap-2 {
+  margin-left: 40px;
+  margin-right: -800px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.fw-bold {
+  margin-left: 60px;
+}
+
+.Todo{
+  margin-left: -250px;
+}
+.todo{
+  margin-left: -550px;
+}
