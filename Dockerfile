@@ -1,23 +1,18 @@
-# Use the latest LTS version of Node.js
-FROM node:18-alpine
+# Build stage
+FROM node:18-alpine AS build
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy package.json and package-lock.json
 COPY package*.json ./
-
-# Install dependencies
-RUN npm install
-
-# Copy the rest of your application files
+RUN npm ci --only=production
 COPY . .
-
-# Build the app
 RUN npm run build
 
-# Expose the port your app runs on
-EXPOSE 3000
+# Production stage
+FROM nginx:alpine
 
-# Serve the built app
-CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "3000"]
+COPY --from=build /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
