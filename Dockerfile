@@ -1,7 +1,7 @@
 FROM node:18-alpine AS build
 WORKDIR /app
 
-# Copy package files
+# Copy package files file is existed in the repo of Docker
 COPY package*.json ./
 
 # Install dependencies
