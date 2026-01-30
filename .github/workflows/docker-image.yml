@@ -3,7 +3,7 @@ name: Build and Push Docker Image
 on:
   push:
     branches:
-      - main  # or the branch you want to deploy from
+      - main
 
 jobs:
   build-and-push:
@@ -21,8 +21,8 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t ${{ secrets.DOCKER_HUB_USERNAME }}/todo-ec2:latest .
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/todo-ec2:latest .
 
       - name: Push Docker image
         run: |
-          docker push ${{ secrets.DOCKER_HUB_USERNAME }}/todo-ec2:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/todo-ec2:latest
