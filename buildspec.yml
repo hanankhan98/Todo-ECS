@@ -1,0 +1,103 @@
+version: "0.2"
+env:
+  variables:
+    # Docker Hub variables
+    DOCKERHUB_REPO: "hanankhan9191/todo-ec2"
+    IMAGE_TAG: "latest"
+    # EC2 variables
+    EC2_HOST: "ec2-18-209-23-236.compute-1.amazonaws.com"
+    EC2_USER: "ec2-user"
+    SECRET_NAME: "todo-ec2"
+  # Docker Hub credentials from Parameter Store
+  parameter-store:
+    DOCKERHUB_USERNAME: /codebuild/dockerhub-username
+    DOCKERHUB_PASSWORD: /codebuild/dockerhub-password
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+    commands:
+      - echo Installing dependencies...
+      - yum install -y jq docker
+      - nohup /usr/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 --storage-driver=overlay2 &
+      - timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+
+  pre_build:
+    commands:
+      - echo "========================================="
+      - echo "Pre-Build Phase Started"
+      - echo "========================================="
+      
+      - echo Logging in to Docker Hub...
+      - echo $DOCKERHUB_PASSWORD | docker login --username $DOCKERHUB_USERNAME --password-stdin
+      - echo Docker Hub login successful
+      
+      - echo Retrieving SSH key from Secrets Manager...
+      - |
+        SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id $SECRET_NAME --region us-east-1 --query SecretString --output text)
+        echo "$SECRET_JSON" | jq -r '.ssh_key' > /tmp/todo-react-keypair1.pem
+        chmod 400 /tmp/todo-react-keypair1.pem
+      - echo SSH key retrieved successfully
+      - echo "========================================="
+
+  build:
+    commands:
+      - echo "========================================="
+      - echo "Build Phase Started"
+      - echo "========================================="
+      
+      - echo Build started on `date`
+      - echo Building the Docker image...
+      - docker build -t $DOCKERHUB_REPO:$IMAGE_TAG .
+      
+      - echo Listing Docker images...
+      - docker images
+      - echo "========================================="
+
+  post_build:
+    commands:
+      - echo "========================================="
+      - echo "Post-Build Phase Started"
+      - echo "========================================="
+      
+      - echo Build completed on `date`
+      - echo Pushing the Docker image to Docker Hub...
+      - docker push $DOCKERHUB_REPO:$IMAGE_TAG
+      - echo Docker image pushed successfully to Docker Hub at $DOCKERHUB_REPO:$IMAGE_TAG
+      
+      - echo "========================================="
+      - echo "Starting EC2 Deployment"
+      - echo "========================================="
+      
+      - chmod 400 /tmp/todo-react-keypair1.pem
+      - |
+        ssh -o StrictHostKeyChecking=no -i /tmp/todo-react-keypair1.pem $EC2_USER@$EC2_HOST << 'ENDSSH'
+          echo "Connected to EC2 instance successfully!"
+          
+          # Stop and remove existing container
+          docker stop todo-app || true
+          docker rm todo-app || true
+          
+          # Pull latest image from Docker Hub
+          docker pull hanankhan9191/todo-ec2:latest
+          
+          # Run new container
+          docker run -d --name todo-app -p 80:80 --restart unless-stopped hanankhan9191/todo-ec2:latest
+          
+          # Verify container is running
+          docker ps | grep todo-app
+          
+          # Clean up old images
+          docker image prune -af
+          
+          echo "Deployment completed successfully!"
+        ENDSSH
+      
+      - echo "========================================="
+      - echo "EC2 Deployment Completed Successfully"
+      - echo "========================================="
+
+artifacts:
+  files:
+    - '**/*'
