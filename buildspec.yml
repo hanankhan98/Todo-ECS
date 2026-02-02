@@ -19,15 +19,20 @@ phases:
       nodejs: 18
     commands:
       - echo Installing dependencies...
-      - yum install -y jq docker
+      - yum install -y jq docker openssh-clients
       - nohup /usr/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 --storage-driver=overlay2 &
       - timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+      - echo Docker started successfully
 
   pre_build:
     commands:
       - echo "========================================="
       - echo "Pre-Build Phase Started"
       - echo "========================================="
+      
+      - echo Current directory is $(pwd)
+      - echo Listing files in current directory...
+      - ls -la
       
       - echo Logging in to Docker Hub...
       - echo $DOCKERHUB_PASSWORD | docker login --username $DOCKERHUB_USERNAME --password-stdin
@@ -39,6 +44,28 @@ phases:
         echo "$SECRET_JSON" | jq -r '.ssh_key' > /tmp/todo-react-keypair1.pem
         chmod 400 /tmp/todo-react-keypair1.pem
       - echo SSH key retrieved successfully
+      
+      - echo Verifying SSH key format...
+      - head -1 /tmp/todo-react-keypair1.pem
+      - |
+        if ! grep -q "BEGIN.*PRIVATE KEY" /tmp/todo-react-keypair1.pem; then
+          echo "ERROR: SSH key format is invalid"
+          exit 1
+        fi
+      
+      - echo Testing EC2 connectivity...
+      - |
+        if ! ping -c 2 $EC2_HOST; then
+          echo "WARNING: Cannot ping EC2 instance (this may be normal if ICMP is blocked)"
+        fi
+      
+      - echo Checking if Dockerfile exists...
+      - |
+        if [ ! -f "Dockerfile" ]; then
+          echo "ERROR: Dockerfile not found in $(pwd)"
+          exit 1
+        fi
+      - echo Dockerfile found!
       - echo "========================================="
 
   build:
@@ -70,25 +97,58 @@ phases:
       - echo "Starting EC2 Deployment"
       - echo "========================================="
       
+      - echo Testing SSH connection...
       - chmod 400 /tmp/todo-react-keypair1.pem
       - |
-        ssh -o StrictHostKeyChecking=no -i /tmp/todo-react-keypair1.pem $EC2_USER@$EC2_HOST << 'ENDSSH'
+        ssh -vv -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i /tmp/todo-react-keypair1.pem $EC2_USER@$EC2_HOST "echo 'SSH connection test successful'" || {
+          echo "ERROR: SSH connection failed"
+          echo "Please check:"
+          echo "1. EC2 Security Group allows SSH (port 22) from CodeBuild IP"
+          echo "2. SSH key in Secrets Manager is correct"
+          echo "3. EC2 instance is running"
+          exit 1
+        }
+      
+      - echo Deploying to EC2...
+      - |
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i /tmp/todo-react-keypair1.pem $EC2_USER@$EC2_HOST << 'ENDSSH'
+          set -e
           echo "Connected to EC2 instance successfully!"
           
+          # Check if Docker is installed
+          if ! command -v docker &> /dev/null; then
+            echo "ERROR: Docker is not installed on EC2 instance"
+            exit 1
+          fi
+          
           # Stop and remove existing container
-          docker stop todo-app || true
-          docker rm todo-app || true
+          echo "Stopping existing container..."
+          docker stop todo-app 2>/dev/null || echo "No existing container to stop"
+          docker rm todo-app 2>/dev/null || echo "No existing container to remove"
           
           # Pull latest image from Docker Hub
+          echo "Pulling latest image from Docker Hub..."
           docker pull hanankhan9191/todo-ec2:latest
           
           # Run new container
+          echo "Starting new container..."
           docker run -d --name todo-app -p 80:80 --restart unless-stopped hanankhan9191/todo-ec2:latest
           
+          # Wait for container to be healthy
+          sleep 3
+          
           # Verify container is running
-          docker ps | grep todo-app
+          if docker ps | grep -q todo-app; then
+            echo "Container is running successfully!"
+            docker ps | grep todo-app
+          else
+            echo "ERROR: Container failed to start"
+            docker logs todo-app
+            exit 1
+          fi
           
           # Clean up old images
+          echo "Cleaning up old images..."
           docker image prune -af
           
           echo "Deployment completed successfully!"
